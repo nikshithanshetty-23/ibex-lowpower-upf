@@ -1,0 +1,49 @@
+## ===========================================================================
+## ibex_soc.upf - IEEE 1801 (UPF 2.0) power intent for the low-power Ibex SoC
+##
+##   PD_TOP  : always-on (VDD 1.2 V)  - PMU, SRAMs, GPIO, loader, RMW logic
+##   PD_CORE : switchable (VDD_CORE)  - u_core (ibex_top), via header switch
+##   Isolation: all PD_CORE outputs clamped to 0 (cells in parent, always-on)
+## ===========================================================================
+upf_version 2.0
+
+# ---------------- power domains ----------------
+create_power_domain PD_TOP  -include_scope
+create_power_domain PD_CORE -elements {u_core}
+
+# ---------------- supply ports / nets ----------------
+create_supply_port VDD
+create_supply_port VSS
+create_supply_net  VDD
+create_supply_net  VSS
+create_supply_net  VDD_CORE
+connect_supply_net VDD -ports VDD
+connect_supply_net VSS -ports VSS
+
+set_domain_supply_net PD_TOP  -primary_power_net VDD      -primary_ground_net VSS
+set_domain_supply_net PD_CORE -primary_power_net VDD_CORE -primary_ground_net VSS
+
+# ---------------- power switch (header, HSWX1: PSO=1 -> OFF) ----------------
+create_power_switch SW_CORE -domain PD_CORE \
+    -input_supply_port  {vin  VDD} \
+    -output_supply_port {vout VDD_CORE} \
+    -control_port       {pso  core_pso} \
+    -on_state           {s_on  vin {!pso}} \
+    -off_state          {s_off {pso}}
+
+# ---------------- isolation (clamp core outputs to 0 while OFF) -------------
+set_isolation ISO_CORE -domain PD_CORE \
+    -applies_to outputs \
+    -clamp_value 0 \
+    -isolation_power_net VDD -isolation_ground_net VSS \
+    -isolation_signal core_iso -isolation_sense high \
+    -location parent
+
+# ---------------- power states ----------------
+add_port_state VDD          -state {ON 1.2}
+add_port_state VSS          -state {GND 0.0}
+add_port_state SW_CORE/vout -state {ON 1.2} -state {OFF off}
+
+create_pst ibex_pst -supplies {VDD VSS SW_CORE/vout}
+add_pst_state RUN   -pst ibex_pst -state {ON GND ON}
+add_pst_state SLEEP -pst ibex_pst -state {ON GND OFF}
